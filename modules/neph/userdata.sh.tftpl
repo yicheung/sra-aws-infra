@@ -1,0 +1,46 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y docker git python3-pip jq unzip
+systemctl enable --now docker
+
+SECRET=$(aws secretsmanager get-secret-value --region ${region} --secret-id ${secret_arn} --query SecretString --output text)
+NEO4J_PW=$(echo "$SECRET" | jq -r .neo4j_password)
+STEAMPIPE_PW=$(echo "$SECRET" | jq -r .steampipe_password)
+
+# --- Fetch Neph ---
+cd /opt
+git clone https://github.com/SecurityRiskAdvisors/neph.git
+cd /opt/neph
+
+# Steampipe AWS connection: use the instance profile (no static keys).
+mkdir -p /opt/neph/config
+cat > /opt/neph/config/aws.spc <<SPC
+connection "aws" {
+  plugin  = "aws"
+  regions = ${scan_regions}
+}
+SPC
+
+# .env for neph (see docs/Quickstart.md)
+cat > /opt/neph/.env <<ENVEOF
+steampipe_password=$STEAMPIPE_PW
+steampipe_host=steampipe
+neo4j_host=localhost
+neo4j_password=$NEO4J_PW
+simulator_url=http://localhost:3000/
+steampipe_aggregator=aws
+generate_leads=False
+load_aws_org=${load_aws_org}
+ENVEOF
+chmod 600 /opt/neph/.env
+
+# Bring up core services (simulator, steampipe, neo4j). CDC/jupyter optional.
+# NOTE: finalize the compose wiring (volume mounts for aws.spc + neo4j auth pw)
+# against docker-compose.example.yml before first collection, then:
+#   docker compose up -d simulator steampipe neo4j
+#   pip install dist/*.whl   # or: pip install .
+#   neph ingest sql --mode bulk --create-fixtures
+#   neph path leads --all
+echo "Neph fetched to /opt/neph. Review README before first ingest."

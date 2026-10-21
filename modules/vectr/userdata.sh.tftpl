@@ -1,0 +1,39 @@
+#!/bin/bash
+set -euxo pipefail
+
+# --- Docker Engine (per VECTR install guide, Ubuntu 22.04) ---
+apt-get update
+apt-get install -y ca-certificates curl unzip jq awscli
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# --- Fetch VECTR runtime ---
+mkdir -p /opt/vectr && cd /opt/vectr
+curl -fsSL -o runtime.zip \
+  "https://github.com/SecurityRiskAdvisors/VECTR/releases/download/${vectr_version}/sra-vectr-runtime-$(echo ${vectr_version} | sed 's/^ce-//')-ce.zip"
+unzip -o runtime.zip
+rm -f runtime.zip
+
+# --- Build .env from Secrets Manager ---
+SECRET=$(aws secretsmanager get-secret-value --region ${region} --secret-id ${secret_arn} --query SecretString --output text)
+cat > /opt/vectr/.env <<ENVEOF
+VECTR_HOSTNAME=${vectr_hostname}
+VECTR_PORT=${vectr_port}
+POSTGRES_PASSWORD=$(echo "$SECRET" | jq -r .POSTGRES_PASSWORD)
+POSTGRES_USER=$(echo "$SECRET" | jq -r .POSTGRES_USER)
+POSTGRES_DB=$(echo "$SECRET" | jq -r .POSTGRES_DB)
+VECTR_DATA_KEY=$(echo "$SECRET" | jq -r .VECTR_DATA_KEY)
+JWS_KEY=$(echo "$SECRET" | jq -r .JWS_KEY)
+JWE_KEY=$(echo "$SECRET" | jq -r .JWE_KEY)
+COMPOSE_PROJECT_NAME=vectr
+ENVEOF
+chmod 600 /opt/vectr/.env
+
+# --- Start VECTR ---
+cd /opt/vectr
+docker compose up -d
+echo "VECTR bootstrap complete. Default login admin / 11_ThisIsTheFirstPassword_11 — change immediately."
