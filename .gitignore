@@ -26,3 +26,7 @@ dist/
 __pycache__/
 *.pyc
 .venv/
+
+# Claude Code conversation exports
+*.log
+SRA-apps-infra-build-out.log
