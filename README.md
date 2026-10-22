@@ -64,3 +64,4 @@ terraform apply
   Manager — no public ingress unless you explicitly set `allowed_cidrs`.
 - All secrets are generated into AWS Secrets Manager / SSM Parameter Store,
   never written to state as plaintext where avoidable.
+# sra-aws-infra
